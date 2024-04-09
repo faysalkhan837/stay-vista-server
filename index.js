@@ -6,6 +6,7 @@ const port = process.env.PORT || 5000;
 const cookieParser = require('cookie-parser')
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+const stripe = require('stripe')(process.env.PAYMENT_SECRET_KEY);
 
 // const corsOption = {
 //   origin: ['http://localhost:5173'],
@@ -54,6 +55,7 @@ async function run() {
 
     const usersCollection = client.db("stayvista").collection("users");
     const roomsCollection = client.db("stayvista").collection("rooms");
+    const bookingsCollection = client.db("stayvista").collection("bookings");
 
     app.post('/jwt', async (req, res) => {
       const user = req.body;
@@ -85,10 +87,10 @@ async function run() {
       res.send(result);
     })
     // get user role....
-    app.get('/user/:email', async (req, res) =>{
+    app.get('/user/:email', async (req, res) => {
       const email = req.params.email;
       // const query = {email:email}
-      const result = await usersCollection.findOne({email})
+      const result = await usersCollection.findOne({ email })
       res.send(result);
     })
     // LogOut......
@@ -111,7 +113,7 @@ async function run() {
     // get rooms data for host...
     app.get('/rooms/:email', async (req, res) => {
       const email = req.params.email;
-      const result = await roomsCollection.find({'host.email': email}).toArray();
+      const result = await roomsCollection.find({ 'host.email': email }).toArray();
       res.send(result);
     })
     // get single room data....
@@ -126,6 +128,39 @@ async function run() {
       const result = await roomsCollection.insertOne(room);
       res.send(result);
     })
+    // Generet client secret for stripe payment...
+    app.post('/create-payment-intent',verifyToken, async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      if (!price || amount < 1) return
+      const { client_secret } = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      })
+      res.send({ clientSecret: client_secret });
+    })
+    // Save booking info in the booking collection
+    app.post('/bookings',verifyToken, async (req, res) => {
+      const booking = req.body;
+      const result = await bookingsCollection.insertOne(booking);
+      // send confirmation email.....
+      res.send(result);
+    })
+    // Update room bookings status....
+    app.patch('/rooms/status/:id', async(req, res) =>{
+      const id = req.params.id;
+      const status = req.body.status;
+      const query = {_id: new ObjectId(id)};
+      const updateDoc = {
+        $set:{
+          booked: status
+        }
+      };
+      const result = await bookingsCollection.updateOne(query, updateDoc);
+      res.send(result);
+    })
+
 
 
     // Connect the client to the server	(optional starting in v4.7)
